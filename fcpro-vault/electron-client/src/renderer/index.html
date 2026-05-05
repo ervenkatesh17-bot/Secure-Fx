@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src http://localhost:3001"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FCPro Vault</title>
@@ -12,8 +12,27 @@
   <body>
     <main>
       <h1>FCPro Vault</h1>
-      <p id="machine"></p>
-      <p id="status">Checking API health...</p>
+      <section id="activation">
+        <label for="license-key">License key</label>
+        <input
+          id="license-key"
+          autocomplete="off"
+          maxlength="36"
+          placeholder="XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+        />
+        <button id="activate">Activate</button>
+        <button id="deactivate">Deactivate</button>
+      </section>
+      <section id="project">
+        <label for="project-id">Project ID</label>
+        <input
+          id="project-id"
+          autocomplete="off"
+          placeholder="00000000-0000-4000-8000-000000000000"
+        />
+        <button id="open-project">Open Project</button>
+      </section>
+      <p id="status">Checking activation...</p>
     </main>
     <script src="./renderer.js"></script>
   </body>
