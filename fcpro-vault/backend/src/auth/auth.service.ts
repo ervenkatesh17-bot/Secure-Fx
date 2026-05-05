@@ -10,20 +10,20 @@ import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import { Customer, CustomerRole } from './entities/customer.entity';
 
-interface RegisterInput {
+export interface RegisterInput {
   name: string;
   email: string;
   password: string;
 }
 
-interface TokenUser {
+export interface TokenUser {
   id: string;
   email: string;
   name: string;
   role: CustomerRole;
 }
 
-interface AuthTokenResponse {
+export interface AuthTokenResponse {
   token: string;
   user: TokenUser;
 }
