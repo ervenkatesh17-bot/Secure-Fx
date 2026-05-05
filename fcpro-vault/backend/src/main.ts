@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -10,11 +12,33 @@ async function bootstrap() {
   });
   const configService = app.get(ConfigService);
 
-  app.use(helmet());
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          baseUri: ["'self'"],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'", 'https:', 'data:'],
+          formAction: ["'self'"],
+          frameAncestors: ["'none'"],
+          imgSrc: ["'self'", 'data:'],
+          objectSrc: ["'none'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          upgradeInsecureRequests: [],
+        },
+      },
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
   app.enableCors({
     origin: configService.get<string>('CORS_ORIGIN', 'http://localhost:3000'),
     credentials: true,
   });
+  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -23,7 +47,7 @@ async function bootstrap() {
     }),
   );
 
-  const port = configService.get<number>('PORT', 3001);
+  const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
 }
 
