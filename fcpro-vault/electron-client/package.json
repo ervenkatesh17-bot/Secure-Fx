@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && mkdir -p dist/renderer && cp src/renderer/* dist/renderer/",
+    "dev": "npm run build && electron .",
     "start": "electron ."
   },
   "dependencies": {
