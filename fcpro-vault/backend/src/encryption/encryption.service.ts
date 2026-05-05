@@ -347,7 +347,7 @@ export class EncryptionService {
     header: Buffer,
     associatedData?: Buffer,
   ): Transform {
-    let pending = Buffer.alloc(0);
+    let pending: Buffer = Buffer.alloc(0);
 
     return new Transform({
       construct(callback: (error?: Error | null) => void): void {
@@ -361,8 +361,8 @@ export class EncryptionService {
         callback: (error?: Error | null) => void,
       ): void {
         try {
-          const input = Buffer.isBuffer(chunk)
-            ? chunk
+          const input: Buffer = Buffer.isBuffer(chunk)
+            ? Buffer.from(chunk)
             : Buffer.from(chunk, encoding);
 
           pending =
