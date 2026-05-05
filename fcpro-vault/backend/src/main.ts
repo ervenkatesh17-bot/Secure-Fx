@@ -12,7 +12,7 @@ async function bootstrap() {
   });
   const configService = app.get(ConfigService);
 
-  app.disable('x-powered-by');
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
   app.use(
     helmet({
       contentSecurityPolicy: {
