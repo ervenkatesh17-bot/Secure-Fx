@@ -3,13 +3,10 @@ import {
   CreateDateColumn,
   Entity,
   Index,
-  JoinColumn,
-  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { Customer } from '../../auth/entities/customer.entity';
 import { Device } from './device.entity';
 
 export enum LicenseStatus {
@@ -51,15 +48,8 @@ export class License {
   tier: LicenseTier;
 
   @Index()
-  @Column({ type: 'uuid' })
+  @Column({ type: 'varchar', length: 255 })
   customerId: string;
-
-  @ManyToOne(() => Customer, (customer) => customer.licenses, {
-    nullable: false,
-    onDelete: 'RESTRICT',
-  })
-  @JoinColumn({ name: 'customerId' })
-  customer: Customer;
 
   @Index()
   @Column({ type: 'varchar', length: 255, nullable: true })

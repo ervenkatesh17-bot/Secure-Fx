@@ -3,11 +3,9 @@ import {
   CreateDateColumn,
   Entity,
   Index,
-  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { License } from '../../license/entities/license.entity';
 
 export enum CustomerRole {
   CUSTOMER = 'customer',
@@ -36,9 +34,6 @@ export class Customer {
     default: CustomerRole.CUSTOMER,
   })
   role: CustomerRole;
-
-  @OneToMany(() => License, (license) => license.customer)
-  licenses: License[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
