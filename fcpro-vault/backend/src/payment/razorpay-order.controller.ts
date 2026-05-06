@@ -2,16 +2,12 @@ import {
   BadRequestException,
   Body,
   Controller,
+  HttpCode,
   Post,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, timingSafeEqual } from 'crypto';
-import {
-  IsEmail,
-  IsIn,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsEmail, IsIn, IsString, MaxLength } from 'class-validator';
 
 type RazorpayPlan = 'standard' | 'professional' | 'enterprise';
 
@@ -24,7 +20,8 @@ interface RazorpayOrderResponse {
 interface RazorpayOrdersClient {
   create(options: {
     amount: number;
-    currency: string;
+    currency: 'INR';
+    receipt: string;
     notes: Record<string, string>;
   }): Promise<RazorpayOrderResponse>;
 }
@@ -49,7 +46,7 @@ export class CreateOrderDto {
   name: string;
 }
 
-export class VerifyRazorpayOrderDto {
+export class VerifyPaymentDto {
   @IsString()
   razorpay_order_id: string;
 
@@ -70,7 +67,7 @@ export class VerifyRazorpayOrderDto {
   name: string;
 }
 
-const PLAN_AMOUNTS_PAISE: Record<RazorpayPlan, number> = {
+const PLAN_AMOUNTS: Record<RazorpayPlan, number> = {
   standard: 199_900,
   professional: 399_900,
   enterprise: 799_900,
@@ -78,29 +75,25 @@ const PLAN_AMOUNTS_PAISE: Record<RazorpayPlan, number> = {
 
 @Controller('payment/razorpay')
 export class RazorpayOrderController {
-  private readonly keyId: string;
-  private readonly keySecret: string;
-  private readonly razorpay: RazorpayClient;
-
-  constructor(private readonly configService: ConfigService) {
-    this.keyId = this.configService.getOrThrow<string>('RAZORPAY_KEY_ID');
-    this.keySecret = this.configService.getOrThrow<string>(
-      'RAZORPAY_KEY_SECRET',
-    );
-    const Razorpay = require('razorpay') as RazorpayConstructor;
-    this.razorpay = new Razorpay({
-      key_id: this.keyId,
-      key_secret: this.keySecret,
-    });
-  }
+  constructor(private readonly configService: ConfigService) {}
 
   @Post('order')
-  async createOrder(@Body() dto: CreateOrderDto) {
-    const amount = PLAN_AMOUNTS_PAISE[dto.plan];
-    const currency = 'INR';
-    const order = await this.razorpay.orders.create({
-      amount,
-      currency,
+  @HttpCode(200)
+  async createOrder(@Body() dto: CreateOrderDto): Promise<{
+    orderId: string;
+    amount: number;
+    currency: string;
+    keyId: string | undefined;
+  }> {
+    const Razorpay = require('razorpay') as RazorpayConstructor;
+    const instance = new Razorpay({
+      key_id: this.configService.getOrThrow<string>('RAZORPAY_KEY_ID'),
+      key_secret: this.configService.getOrThrow<string>('RAZORPAY_KEY_SECRET'),
+    });
+    const order = await instance.orders.create({
+      amount: PLAN_AMOUNTS[dto.plan],
+      currency: 'INR',
+      receipt: `fcp_${Date.now()}`,
       notes: {
         plan: dto.plan,
         email: dto.email,
@@ -112,37 +105,40 @@ export class RazorpayOrderController {
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
-      keyId: this.keyId,
+      keyId: this.configService.get<string>('RAZORPAY_KEY_ID'),
     };
   }
 
   @Post('verify')
-  verifyPayment(@Body() dto: VerifyRazorpayOrderDto) {
-    const expectedSignature = createHmac('sha256', this.keySecret)
-      .update(`${dto.razorpay_order_id}|${dto.razorpay_payment_id}`)
-      .digest('hex');
+  @HttpCode(200)
+  async verifyPayment(@Body() dto: VerifyPaymentDto): Promise<{
+    message: string;
+    email: string;
+  }> {
+    const secret = this.configService.getOrThrow<string>(
+      'RAZORPAY_KEY_SECRET',
+    );
+    const body = `${dto.razorpay_order_id}|${dto.razorpay_payment_id}`;
+    const expected = createHmac('sha256', secret).update(body).digest('hex');
+    let valid: boolean;
 
-    if (!this.isSignatureMatch(expectedSignature, dto.razorpay_signature)) {
-      throw new BadRequestException('Invalid Razorpay signature');
+    try {
+      valid = timingSafeEqual(
+        Buffer.from(expected, 'hex'),
+        Buffer.from(dto.razorpay_signature, 'hex'),
+      );
+    } catch {
+      valid = false;
+    }
+
+    if (!valid) {
+      throw new BadRequestException('Invalid payment signature');
     }
 
     return {
-      success: true,
-      message: 'Payment verified. License will be created by webhook.',
+      message:
+        'Payment verified successfully. Your license key will be sent to your email shortly.',
+      email: dto.email,
     };
-  }
-
-  private isSignatureMatch(expected: string, actual: string): boolean {
-    const expectedBuffer = Buffer.from(expected, 'hex');
-    const actualBuffer = Buffer.from(actual, 'hex');
-
-    if (
-      expectedBuffer.length === 0 ||
-      expectedBuffer.length !== actualBuffer.length
-    ) {
-      return false;
-    }
-
-    return timingSafeEqual(expectedBuffer, actualBuffer);
   }
 }

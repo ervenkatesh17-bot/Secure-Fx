@@ -64,15 +64,11 @@ export class License {
 
   @Index()
   @Column({ type: 'varchar', length: 255, nullable: true })
-  stripeCustomerId: string | null;
-
-  @Index()
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  stripeSubscriptionId: string | null;
-
-  @Index()
-  @Column({ type: 'varchar', length: 255, nullable: true })
   razorpayCustomerId: string | null;
+
+  @Index()
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  razorpayPaymentId: string | null;
 
   @Column({ type: 'integer', default: 0 })
   verificationCount: number;
