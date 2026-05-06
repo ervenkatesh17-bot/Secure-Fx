@@ -5,23 +5,25 @@ import {
   NestInterceptor,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 @Injectable()
 export class ResponseInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const response = context.switchToHttp().getResponse<{
+    const res = context.switchToHttp().getResponse<{
       setHeader(name: string, value: string): void;
     }>();
 
-    response.setHeader('X-Content-Type-Options', 'nosniff');
-    response.setHeader('X-Frame-Options', 'DENY');
-    response.setHeader('Referrer-Policy', 'no-referrer');
-    response.setHeader(
-      'Permissions-Policy',
-      'camera=(), microphone=(), geolocation=(), payment=()',
-    );
-    response.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Cache-Control', 'no-store');
 
-    return next.handle();
+    return next.handle().pipe(
+      map((data: unknown) => ({
+        success: true,
+        data,
+        timestamp: new Date().toISOString(),
+      })),
+    );
   }
 }

@@ -8,7 +8,8 @@ import { RazorpayOrderController } from './razorpay-order.controller';
 
 @Module({
   imports: [TypeOrmModule.forFeature([License, AuditLog])],
-  providers: [PaymentService],
   controllers: [PaymentController, RazorpayOrderController],
+  providers: [PaymentService],
+  exports: [PaymentService],
 })
 export class PaymentModule {}

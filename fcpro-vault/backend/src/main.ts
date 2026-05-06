@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
@@ -6,39 +6,28 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
-async function bootstrap() {
+async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
+    logger: ['log', 'error', 'warn', 'debug'],
   });
-  const configService = app.get(ConfigService);
+  const config = app.get(ConfigService);
 
-  app.getHttpAdapter().getInstance().disable('x-powered-by');
   app.use(
     helmet({
-      contentSecurityPolicy: {
-        directives: {
-          defaultSrc: ["'self'"],
-          baseUri: ["'self'"],
-          connectSrc: ["'self'"],
-          fontSrc: ["'self'", 'https:', 'data:'],
-          formAction: ["'self'"],
-          frameAncestors: ["'none'"],
-          imgSrc: ["'self'", 'data:'],
-          objectSrc: ["'none'"],
-          scriptSrc: ["'self'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
-          upgradeInsecureRequests: [],
-        },
-      },
-      crossOriginEmbedderPolicy: false,
+      contentSecurityPolicy: false,
     }),
   );
+
   app.enableCors({
-    origin: configService.get<string>('CORS_ORIGIN', 'http://localhost:3000'),
+    origin: [
+      'http://localhost:3001',
+      'https://your-vercel-app.vercel.app',
+      config.get<string>('FRONTEND_URL', ''),
+    ].filter(Boolean),
     credentials: true,
   });
-  app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new ResponseInterceptor());
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -47,8 +36,16 @@ async function bootstrap() {
     }),
   );
 
-  const port = configService.get<number>('PORT', 3000);
+  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
+
+  const port = config.get<number>('PORT', 3000);
   await app.listen(port);
+  new Logger('Bootstrap').log(`Server running on port ${port}`);
 }
 
-void bootstrap();
+bootstrap().catch((err: unknown) => {
+  console.error('Fatal startup error:', err);
+  process.exit(1);
+});

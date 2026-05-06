@@ -4,7 +4,7 @@ const features = [
   ['Envelope Encryption', 'AES-256-GCM project delivery with KMS-backed data keys and authenticated metadata.', '🔐'],
   ['Two-Device License', 'Keep premium projects portable for real customers while stopping unlimited sharing.', '💻'],
   ['Replay Protection', 'Redis nonce claims, short TTL tokens, and IP-bound license verification sessions.', '⚡'],
-  ['Payment Webhooks', 'Stripe and Razorpay events create, suspend, and expire licenses automatically.', '💳'],
+  ['Razorpay Webhooks', 'Verified Razorpay events create, suspend, and expire licenses automatically.', '💳'],
   ['Admin Control', 'Operational dashboards for revocation, audit trails, device limits, and verification stats.', '🛡️'],
   ['FCP Desktop App', 'A sandboxed desktop client opens encrypted projects without exposing raw keys to the renderer.', '🎬'],
 ];

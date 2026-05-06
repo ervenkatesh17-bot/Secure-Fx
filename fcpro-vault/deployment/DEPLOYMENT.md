@@ -2,7 +2,7 @@
 
 This guide describes a production deployment for the FCPro Vault NestJS API,
 PostgreSQL, Redis, NGINX TLS proxy, S3 project storage, KMS envelope encryption,
-Stripe/Razorpay webhooks, and signed Electron releases.
+Razorpay webhooks, and signed Electron releases.
 
 ## 1. AWS Setup
 
@@ -125,8 +125,6 @@ AWS_REGION=ap-south-1
 AWS_ACCESS_KEY_ID=<access-key>
 AWS_SECRET_ACCESS_KEY=<secret-key>
 S3_BUCKET_NAME=fcpro-vault-prod-projects
-STRIPE_SECRET_KEY=<stripe-secret-key>
-STRIPE_WEBHOOK_SECRET=<stripe-webhook-secret>
 RAZORPAY_KEY_ID=<razorpay-key-id>
 RAZORPAY_KEY_SECRET=<razorpay-key-secret>
 RAZORPAY_WEBHOOK_SECRET=<razorpay-webhook-secret>
@@ -174,29 +172,7 @@ For a private Railway deployment, use managed PostgreSQL and Redis services,
 configure all environment variables as Railway secrets, expose only the API
 service, and put NGINX/TLS at the platform edge or in front of the API service.
 
-## 3. Stripe + Razorpay Webhook Setup
-
-### Stripe
-
-Create an endpoint in Stripe Dashboard:
-
-```text
-https://api.fcprovault.example.com/payment/webhook/stripe
-```
-
-Subscribe to these exact events:
-
-```text
-checkout.session.completed
-invoice.paid
-invoice.payment_failed
-customer.subscription.deleted
-charge.dispute.created
-```
-
-Copy the generated signing secret into `STRIPE_WEBHOOK_SECRET`.
-
-### Razorpay
+## 3. Razorpay Webhook Setup
 
 Create a webhook in Razorpay Dashboard:
 
@@ -258,7 +234,7 @@ npm run package:win
 ## 5. Security Checklist (pre-launch)
 
 - JWT_SECRET uses at least 64 bytes of cryptographic randomness.
-- All database, Redis, AWS, Stripe, Razorpay, and certificate passwords are
+- All database, Redis, AWS, Razorpay, and certificate passwords are
   unique and at least 32 characters.
 - S3 bucket has zero public access and no public bucket policies.
 - KMS key rotation is enabled.
@@ -268,7 +244,7 @@ npm run package:win
 - HSTS preload is enabled.
 - `/license/verify` is rate limited at NGINX and Redis guard layers.
 - Audit logs are retained for at least 90 days.
-- Stripe and Razorpay webhook signatures are verified before processing.
+- Razorpay webhook signatures are verified before processing.
 - Electron app is code-signed for macOS and Windows.
 
 ## 6. Monitoring SQL Queries
