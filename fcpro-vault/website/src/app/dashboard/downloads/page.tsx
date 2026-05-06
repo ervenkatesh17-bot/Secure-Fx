@@ -48,7 +48,7 @@ export default function DownloadsPage() {
       const token = await projectApi.getDownloadUrl(projectId);
       window.location.href = `fcpvault://open?projectId=${encodeURIComponent(
         projectId,
-      )}&url=${encodeURIComponent(token.signedUrl)}&checksum=${encodeURIComponent(
+      )}&token=${encodeURIComponent(token.token)}&checksum=${encodeURIComponent(
         token.checksum,
       )}`;
       toast.success('Opening FCPro Vault desktop client');

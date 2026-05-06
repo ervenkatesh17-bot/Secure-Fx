@@ -1,29 +1,21 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash } from 'crypto';
+import { Response } from 'express';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import { Repository } from 'typeorm';
 import { EncryptionService } from '../encryption/encryption.service';
+import { StorageService } from '../storage/storage.service';
 import { Project } from './entities/project.entity';
 
-export const SIGNED_URL_TTL_SEC = 300;
-
-export interface DownloadToken {
-  signedUrl: string;
-  expiresAt: number;
-  projectId: string;
-  checksum: string;
-}
+const DOWNLOAD_TOKEN_TTL_SEC = 300;
 
 type ProjectTier = 'standard' | 'professional' | 'enterprise';
 
@@ -33,36 +25,30 @@ const TIER_RANK: Record<ProjectTier, number> = {
   enterprise: 3,
 };
 
+interface DownloadJwtPayload extends JwtPayload {
+  remotePath: string;
+  projectId: string;
+  type: string;
+}
+
 @Injectable()
 export class ProjectService {
-  private readonly s3Client: S3Client;
-  private readonly bucketName: string;
+  private readonly logger = new Logger(ProjectService.name);
 
   constructor(
     private readonly configService: ConfigService,
     @InjectRepository(Project)
     private readonly projectRepository: Repository<Project>,
     private readonly encryptionService: EncryptionService,
-  ) {
-    this.bucketName = this.configService.getOrThrow<string>('S3_BUCKET_NAME');
-    this.s3Client = new S3Client({
-      region: this.configService.getOrThrow<string>('AWS_REGION'),
-      credentials: {
-        accessKeyId: this.configService.getOrThrow<string>(
-          'AWS_ACCESS_KEY_ID',
-        ),
-        secretAccessKey: this.configService.getOrThrow<string>(
-          'AWS_SECRET_ACCESS_KEY',
-        ),
-      },
-    });
-  }
+    private readonly storageService: StorageService,
+  ) {}
 
-  async generateDownloadUrl(
+  async getDownloadToken(
     projectId: string,
     licenseId: string,
     licenseTier: string,
-  ): Promise<DownloadToken> {
+  ): Promise<{ token: string; expiresAt: number; checksum: string }> {
+    void licenseId;
     const project = await this.projectRepository.findOne({
       where: { id: projectId, isPublished: true },
     });
@@ -75,33 +61,35 @@ export class ProjectService {
     const requiredTier = this.parseTier(project.requiredTier);
 
     if (TIER_RANK[callerTier] < TIER_RANK[requiredTier]) {
-      throw new ForbiddenException('License tier does not allow this project');
+      throw new ForbiddenException('Upgrade required for this project');
     }
 
-    const key = this.projectS3Key(project);
-    const command = new GetObjectCommand({
-      Bucket: this.bucketName,
-      Key: key,
-      ResponseCacheControl: 'no-store',
-      ResponseContentDisposition: `attachment; filename="${project.encryptedFileName}"`,
-    });
-    const signedUrl = await getSignedUrl(this.s3Client, command, {
-      expiresIn: SIGNED_URL_TTL_SEC,
-    });
+    const remotePath = this.projectRemotePath(project);
+    const { token, expiresAt } = await this.storageService.generateDownloadToken(
+      remotePath,
+      projectId,
+      DOWNLOAD_TOKEN_TTL_SEC,
+    );
 
     return {
-      signedUrl,
-      expiresAt: Math.floor(Date.now() / 1000) + SIGNED_URL_TTL_SEC,
-      projectId: project.id,
+      token,
+      expiresAt,
       checksum: project.encryptedChecksum ?? '',
     };
   }
 
-  async uploadAndEncrypt(
-    projectId: string,
-    fileBuffer: Buffer,
-    kekAlias: string,
-  ): Promise<Project> {
+  async streamProjectToClient(token: string, res: Response): Promise<void> {
+    const payload = this.verifyDownloadToken(token);
+    const data = await this.storageService.downloadFile(payload.remotePath);
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="project.enc"');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Length', data.length);
+    res.end(data);
+  }
+
+  async uploadAndEncrypt(projectId: string, fileBuffer: Buffer): Promise<void> {
     const project = await this.projectRepository.findOne({
       where: { id: projectId },
     });
@@ -110,33 +98,20 @@ export class ProjectService {
       throw new NotFoundException('Project not found');
     }
 
-    const envelope = await this.encryptionService.encryptBuffer(
+    const encrypted = await this.encryptionService.encryptBuffer(
       fileBuffer,
-      kekAlias,
       Buffer.from(projectId, 'utf8'),
     );
-    const serializedEnvelope =
-      this.encryptionService.serializeEnvelope(envelope);
-    const checksum = createHash('sha256')
-      .update(serializedEnvelope)
-      .digest('hex');
+    const serialized = this.encryptionService.serializeEnvelope(encrypted);
+    const checksum = createHash('sha256').update(serialized).digest('hex');
+    const remotePath = this.projectRemotePath(project);
 
-    await this.s3Client.send(
-      new PutObjectCommand({
-        Bucket: this.bucketName,
-        Key: this.projectS3Key(project),
-        Body: serializedEnvelope,
-        ContentType: 'application/octet-stream',
-        CacheControl: 'no-store',
-        ServerSideEncryption: 'aws:kms',
-      }),
-    );
-
-    project.encryptedChecksum = checksum;
-    project.kekAlias = kekAlias;
-    project.fileSizeBytes = serializedEnvelope.length.toString();
-
-    return this.projectRepository.save(project);
+    await this.storageService.uploadFile(remotePath, serialized, checksum);
+    await this.projectRepository.update(projectId, {
+      encryptedChecksum: checksum,
+      fileSizeBytes: serialized.length.toString(),
+    });
+    this.logger.log(`Project ${projectId} encrypted and stored on WD Cloud`);
   }
 
   async listPublished(): Promise<Project[]> {
@@ -146,8 +121,38 @@ export class ProjectService {
     });
   }
 
-  private projectS3Key(project: Project): string {
-    return `projects/${project.id}/encrypted/${project.encryptedFileName}`;
+  private verifyDownloadToken(token: string): DownloadJwtPayload {
+    try {
+      const payload = jwt.verify(
+        token,
+        this.configService.getOrThrow<string>('JWT_SECRET'),
+      ) as DownloadJwtPayload;
+      const now = Math.floor(Date.now() / 1000);
+
+      if (
+        payload.type !== 'download' ||
+        typeof payload.remotePath !== 'string' ||
+        typeof payload.projectId !== 'string'
+      ) {
+        throw new UnauthorizedException('Invalid download token');
+      }
+
+      if (typeof payload.exp !== 'number' || payload.exp < now) {
+        throw new UnauthorizedException('Token expired');
+      }
+
+      return payload;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+
+      throw new UnauthorizedException('Invalid download token');
+    }
+  }
+
+  private projectRemotePath(project: Project): string {
+    return `${project.id}/encrypted/${project.encryptedFileName}`;
   }
 
   private parseTier(value: string): ProjectTier {

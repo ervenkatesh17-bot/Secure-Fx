@@ -142,9 +142,13 @@ ipcMain.handle('open-project', async (_event, projectId: unknown) => {
   const download = await licenseClient.getDownloadUrl(validProjectId);
 
   emitProjectStatus('Downloading encrypted project');
+  const streamUrl = `${SERVER_URL}/project/stream?token=${encodeURIComponent(
+    download.token,
+  )}`;
   const encryptedBlob = await downloadEncryptedBlob(
-    download.signedUrl,
+    streamUrl,
     download.checksum,
+    token.accessToken,
   );
 
   emitProjectStatus('Decrypting project in memory');

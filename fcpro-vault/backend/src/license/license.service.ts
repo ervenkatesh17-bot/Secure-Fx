@@ -326,10 +326,6 @@ export class LicenseService {
   }
 
   private resolveKekAlias(license: License): string {
-    return (
-      license.kekAlias ??
-      this.configService.get<string>('KMS_KEY_ALIAS') ??
-      'alias/fcpro-vault'
-    );
+    return license.kekAlias ?? 'local-kek';
   }
 }

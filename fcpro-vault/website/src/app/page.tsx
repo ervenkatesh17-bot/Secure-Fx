@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 const features = [
-  ['Envelope Encryption', 'AES-256-GCM project delivery with KMS-backed data keys and authenticated metadata.', '🔐'],
+  ['Envelope Encryption', 'AES-256-GCM project delivery with locally wrapped data keys and authenticated metadata.', '🔐'],
   ['Two-Device License', 'Keep premium projects portable for real customers while stopping unlimited sharing.', '💻'],
   ['Replay Protection', 'Redis nonce claims, short TTL tokens, and IP-bound license verification sessions.', '⚡'],
   ['Razorpay Webhooks', 'Verified Razorpay events create, suspend, and expire licenses automatically.', '💳'],

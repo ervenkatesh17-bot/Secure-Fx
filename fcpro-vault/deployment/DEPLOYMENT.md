@@ -1,104 +1,37 @@
 # FCPro Vault Production Deployment Guide
 
 This guide describes a production deployment for the FCPro Vault NestJS API,
-PostgreSQL, Redis, NGINX TLS proxy, S3 project storage, KMS envelope encryption,
-Razorpay webhooks, and signed Electron releases.
+PostgreSQL, Redis, NGINX TLS proxy, WD My Cloud WebDAV project storage, local
+KEK envelope encryption, Razorpay webhooks, and signed Electron releases.
 
-## 1. AWS Setup
+## 1. WD My Cloud Storage + Local KEK Setup
 
-### Create the KMS key and alias
+### Provision the WD My Cloud WebDAV share
 
-```bash
-aws kms create-key \
-  --description "FCPro Vault license envelope encryption key" \
-  --key-usage ENCRYPT_DECRYPT \
-  --origin AWS_KMS \
-  --tags TagKey=app,TagValue=fcpro-vault
-```
-
-Capture the returned `KeyId`, then create the alias required by the app:
+1. Put the WD My Cloud device on a private trusted network segment.
+2. Enable WebDAV access for a dedicated `fcpro-vault` user.
+3. Grant that user read/write access only to the vault share.
+4. Prefer HTTPS WebDAV if the NAS firmware supports it; otherwise keep access
+   limited to the private LAN/VPN.
+5. Confirm the base URL from the API host:
 
 ```bash
-aws kms create-alias \
-  --alias-name alias/fcp-license-kek \
-  --target-key-id <KEY_ID>
+curl -u "$WD_CLOUD_USERNAME:$WD_CLOUD_PASSWORD" \
+  "$WD_CLOUD_URL/fcpro-vault/projects/"
 ```
 
-Enable key rotation:
+### Generate the local Key Encryption Key
+
+The API uses `KEK_MASTER_KEY`, a 64-character hex string representing a 256-bit
+Key Encryption Key. Generate it once and store it only in your production secret
+manager:
 
 ```bash
-aws kms enable-key-rotation --key-id alias/fcp-license-kek
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-### Create the S3 bucket with public access blocked
-
-```bash
-export AWS_REGION=ap-south-1
-export S3_BUCKET_NAME=fcpro-vault-prod-projects
-
-aws s3api create-bucket \
-  --bucket "$S3_BUCKET_NAME" \
-  --region "$AWS_REGION" \
-  --create-bucket-configuration LocationConstraint="$AWS_REGION"
-
-aws s3api put-public-access-block \
-  --bucket "$S3_BUCKET_NAME" \
-  --public-access-block-configuration \
-  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-```
-
-### Enable S3 versioning and default KMS encryption
-
-```bash
-aws s3api put-bucket-versioning \
-  --bucket "$S3_BUCKET_NAME" \
-  --versioning-configuration Status=Enabled
-
-aws s3api put-bucket-encryption \
-  --bucket "$S3_BUCKET_NAME" \
-  --server-side-encryption-configuration '{
-    "Rules": [
-      {
-        "ApplyServerSideEncryptionByDefault": {
-          "SSEAlgorithm": "aws:kms",
-          "KMSMasterKeyID": "alias/fcp-license-kek"
-        },
-        "BucketKeyEnabled": true
-      }
-    ]
-  }'
-```
-
-### Minimal IAM policy
-
-Attach this policy to the IAM role/user used by the API. Replace the account ID,
-region, and bucket name.
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "KmsEnvelopeEncryption",
-      "Effect": "Allow",
-      "Action": [
-        "kms:Decrypt",
-        "kms:GenerateDataKey"
-      ],
-      "Resource": "arn:aws:kms:ap-south-1:123456789012:key/<KEY_ID>"
-    },
-    {
-      "Sid": "ProjectObjectAccess",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject"
-      ],
-      "Resource": "arn:aws:s3:::fcpro-vault-prod-projects/projects/*"
-    }
-  ]
-}
-```
+Do not commit this key, log it, store it in the database, or send it to clients.
+Rotate it with a planned re-encryption migration for existing project envelopes.
 
 ## 2. Backend Deployment (Railway or Docker)
 
@@ -121,10 +54,10 @@ REDIS_HOST=redis
 REDIS_PORT=6379
 REDIS_PASSWORD=<unique-32-char-min-password>
 REDIS_TLS=false
-AWS_REGION=ap-south-1
-AWS_ACCESS_KEY_ID=<access-key>
-AWS_SECRET_ACCESS_KEY=<secret-key>
-S3_BUCKET_NAME=fcpro-vault-prod-projects
+KEK_MASTER_KEY=<64-char-hex-key>
+WD_CLOUD_URL=http://wdmycloud.local/webdav
+WD_CLOUD_USERNAME=<dedicated-webdav-user>
+WD_CLOUD_PASSWORD=<unique-32-char-min-password>
 RAZORPAY_KEY_ID=<razorpay-key-id>
 RAZORPAY_KEY_SECRET=<razorpay-key-secret>
 RAZORPAY_WEBHOOK_SECRET=<razorpay-webhook-secret>
@@ -234,10 +167,10 @@ npm run package:win
 ## 5. Security Checklist (pre-launch)
 
 - JWT_SECRET uses at least 64 bytes of cryptographic randomness.
-- All database, Redis, AWS, Razorpay, and certificate passwords are
+- All database, Redis, WD Cloud, Razorpay, and certificate passwords are
   unique and at least 32 characters.
-- S3 bucket has zero public access and no public bucket policies.
-- KMS key rotation is enabled.
+- WD My Cloud WebDAV user is dedicated to FCPro Vault and has no interactive admin privileges.
+- `KEK_MASTER_KEY` is generated from 32 bytes of cryptographic randomness and stored only in secrets management.
 - PostgreSQL has no external port exposed.
 - Redis password is set and Redis is not exposed externally.
 - TLS 1.2+ only; TLS 1.0 and TLS 1.1 disabled.

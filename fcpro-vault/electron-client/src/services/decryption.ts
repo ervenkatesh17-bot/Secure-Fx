@@ -15,6 +15,7 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs';
+import { get as httpGet } from 'node:http';
 import { get } from 'node:https';
 import path from 'node:path';
 
@@ -34,10 +35,11 @@ export interface DecryptionResult {
 }
 
 export async function downloadEncryptedBlob(
-  signedUrl: string,
+  downloadUrl: string,
   expectedChecksum: string,
+  accessToken?: string,
 ): Promise<Buffer> {
-  const data = await downloadBuffer(signedUrl);
+  const data = await downloadBuffer(downloadUrl, accessToken);
   const actualChecksum = createHash('sha256').update(data).digest('hex');
   const actual = Buffer.from(actualChecksum, 'hex');
   const expected = Buffer.from(expectedChecksum, 'hex');
@@ -105,7 +107,7 @@ export async function decryptDekViaServer(
   serverUrl: string,
 ): Promise<Buffer> {
   const response = await axios.post<{ plaintextDek: string }>(
-    '/kms/decrypt-dek',
+    '/encryption/decrypt-dek',
     {
       encryptedDek: encryptedDek.toString('base64'),
     },
@@ -172,9 +174,19 @@ export async function decryptToTemp(
   }
 }
 
-function downloadBuffer(signedUrl: string): Promise<Buffer> {
+function downloadBuffer(downloadUrl: string, accessToken?: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const request = get(signedUrl, (response) => {
+    const parsed = new URL(downloadUrl);
+    const transport = parsed.protocol === 'http:' ? httpGet : get;
+    const request = transport(
+      parsed,
+      {
+        headers:
+          accessToken !== undefined
+            ? { Authorization: `Bearer ${accessToken}` }
+            : undefined,
+      },
+      (response) => {
       if (
         response.statusCode !== undefined &&
         (response.statusCode < 200 || response.statusCode >= 300)
@@ -187,7 +199,8 @@ function downloadBuffer(signedUrl: string): Promise<Buffer> {
       const chunks: Buffer[] = [];
       response.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
       response.on('end', () => resolve(Buffer.concat(chunks)));
-    });
+      },
+    );
 
     request.setTimeout(30_000, () => {
       request.destroy(new Error('Download timed out'));

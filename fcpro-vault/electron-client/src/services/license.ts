@@ -22,9 +22,8 @@ export interface StoredTokenInfo {
 }
 
 export interface DownloadUrlResponse {
-  signedUrl: string;
+  token: string;
   expiresAt: number;
-  projectId: string;
   checksum: string;
 }
 

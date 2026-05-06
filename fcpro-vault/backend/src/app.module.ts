@@ -14,6 +14,7 @@ import { LicenseModule } from './license/license.module';
 import { PaymentModule } from './payment/payment.module';
 import { Project } from './project/entities/project.entity';
 import { ProjectModule } from './project/project.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ProjectModule } from './project/project.module';
     LicenseModule,
     PaymentModule,
     ProjectModule,
+    StorageModule,
   ],
 })
 export class AppModule {}

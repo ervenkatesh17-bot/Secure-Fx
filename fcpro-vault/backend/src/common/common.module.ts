@@ -5,9 +5,11 @@ import { LicenseRateLimitGuard } from './guards/license-rate-limit.guard';
 import { HealthController } from './health.controller';
 import { NonceService } from './nonce/nonce.service';
 import { RedisService } from './redis/redis.service';
+import { EncryptionModule } from '../encryption/encryption.module';
 
 @Global()
 @Module({
+  imports: [EncryptionModule],
   controllers: [HealthController],
   providers: [
     RedisService,

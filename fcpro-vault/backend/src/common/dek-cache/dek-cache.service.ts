@@ -1,15 +1,5 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import {
-  DecryptCommand,
-  GenerateDataKeyCommand,
-  KMSClient,
-} from '@aws-sdk/client-kms';
-import { KEY_BYTES } from '../../encryption/encryption.service';
+import { Injectable } from '@nestjs/common';
+import { KekService } from '../../encryption/kek.service';
 import { RedisService } from '../redis/redis.service';
 
 export const DEK_CACHE_TTL_SEC = 86_400;
@@ -28,26 +18,12 @@ interface MemoryCacheEntry {
 
 @Injectable()
 export class DekCacheService {
-  private readonly logger = new Logger(DekCacheService.name);
   private readonly memoryCache = new Map<string, MemoryCacheEntry>();
-  private readonly kmsClient: KMSClient;
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly redisService: RedisService,
-  ) {
-    this.kmsClient = new KMSClient({
-      region: this.configService.getOrThrow<string>('AWS_REGION'),
-      credentials: {
-        accessKeyId: this.configService.getOrThrow<string>(
-          'AWS_ACCESS_KEY_ID',
-        ),
-        secretAccessKey: this.configService.getOrThrow<string>(
-          'AWS_SECRET_ACCESS_KEY',
-        ),
-      },
-    });
-  }
+    private readonly kekService: KekService,
+  ) {}
 
   async getOrGenerateDek(
     licenseId: string,
@@ -58,21 +34,23 @@ export class DekCacheService {
       this.getFromMemory(key) ?? (await this.getFromRedis(key));
 
     if (cachedDekB64 !== null) {
-      if (this.getFromMemory(key) === null) {
-        this.setInMemory(key, cachedDekB64);
-      }
-
       return {
-        plaintextDek: await this.kmsDecrypt(cachedDekB64),
+        plaintextDek: await this.kekService.decryptDek(
+          Buffer.from(cachedDekB64, 'base64'),
+        ),
         encryptedDekB64: cachedDekB64,
       };
     }
 
-    const generated = await this.generateFromKms(kekAlias);
-    await this.setInRedis(key, generated.encryptedDekB64);
-    this.setInMemory(key, generated.encryptedDekB64);
+    const generated = await this.kekService.generateDek();
+    const encryptedDekB64 = generated.encryptedDek.toString('base64');
+    await this.setInRedis(key, encryptedDekB64);
+    this.setInMemory(key, encryptedDekB64);
 
-    return generated;
+    return {
+      plaintextDek: generated.plaintextDek,
+      encryptedDekB64,
+    };
   }
 
   async getEncryptedDek(licenseId: string, kekAlias: string): Promise<string> {
@@ -135,11 +113,9 @@ export class DekCacheService {
   private async getFromRedis(key: string): Promise<string | null> {
     const encryptedDekB64 = await this.redisService.getClient().get(key);
 
-    if (encryptedDekB64 === null) {
-      return null;
+    if (encryptedDekB64 !== null) {
+      this.setInMemory(key, encryptedDekB64);
     }
-
-    this.setInMemory(key, encryptedDekB64);
 
     return encryptedDekB64;
   }
@@ -151,65 +127,6 @@ export class DekCacheService {
     await this.redisService
       .getClient()
       .set(key, encryptedDekB64, 'EX', DEK_CACHE_TTL_SEC);
-  }
-
-  private async generateFromKms(kekAlias: string): Promise<DekPair> {
-    try {
-      const response = await this.kmsClient.send(
-        new GenerateDataKeyCommand({
-          KeyId: kekAlias,
-          KeySpec: 'AES_256',
-        }),
-      );
-
-      if (
-        response.Plaintext === undefined ||
-        response.CiphertextBlob === undefined
-      ) {
-        throw new Error('KMS GenerateDataKey response was incomplete');
-      }
-
-      const plaintextDek = Buffer.from(response.Plaintext);
-
-      if (plaintextDek.length !== KEY_BYTES) {
-        plaintextDek.fill(0);
-        throw new Error('KMS GenerateDataKey returned an invalid DEK length');
-      }
-
-      return {
-        plaintextDek,
-        encryptedDekB64: Buffer.from(response.CiphertextBlob).toString('base64'),
-      };
-    } catch (error) {
-      this.logger.error('Failed to generate DEK from KMS');
-      throw new InternalServerErrorException('Unable to generate data key');
-    }
-  }
-
-  private async kmsDecrypt(encryptedDekB64: string): Promise<Buffer> {
-    try {
-      const response = await this.kmsClient.send(
-        new DecryptCommand({
-          CiphertextBlob: Buffer.from(encryptedDekB64, 'base64'),
-        }),
-      );
-
-      if (response.Plaintext === undefined) {
-        throw new Error('KMS Decrypt response did not include Plaintext');
-      }
-
-      const plaintextDek = Buffer.from(response.Plaintext);
-
-      if (plaintextDek.length !== KEY_BYTES) {
-        plaintextDek.fill(0);
-        throw new Error('KMS Decrypt returned an invalid DEK length');
-      }
-
-      return plaintextDek;
-    } catch (error) {
-      this.logger.error('Failed to decrypt cached DEK with KMS');
-      throw new InternalServerErrorException('Unable to decrypt data key');
-    }
   }
 
   private cacheKey(licenseId: string, kekAlias: string): string {

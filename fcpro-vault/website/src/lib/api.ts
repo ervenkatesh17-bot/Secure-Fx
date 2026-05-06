@@ -55,9 +55,8 @@ export interface Project {
 }
 
 export interface DownloadToken {
-  signedUrl: string;
+  token: string;
   expiresAt: number;
-  projectId: string;
   checksum: string;
 }
 
